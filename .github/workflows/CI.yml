@@ -33,7 +33,7 @@ jobs:
             target: x86_64-apple-darwin
             build: yarn build --target x86_64-apple-darwin
           - host: windows-latest
-            build: yarn build --target x86_64-pc-windows-gnu
+            build: sudo apt install cmake && yarn build --target x86_64-pc-windows-gnu
             target: x86_64-pc-windows-gnu
           - host: windows-latest
             build: yarn build --target i686-pc-windows-msvc
