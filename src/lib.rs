@@ -1,7 +1,6 @@
 #![deny(clippy::all)]
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use headless_chrome::{Browser, LaunchOptionsBuilder};
-use log::{error, warn};
 use napi::Result;
 use napi_derive::napi;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -48,13 +47,13 @@ fn crawl_website(
   let response = match client.get(url).send() {
     Ok(resp) => resp,
     Err(e) => {
-      warn!("Failed to fetch URL {}: {}", url, e);
+      println!("Failed to fetch URL {}: {}", url, e);
       return;
     }
   };
 
   if !response.status().is_success() {
-    warn!(
+      println!(
       "Received non-success status code {} for URL: {}",
       response.status(),
       url
@@ -125,7 +124,7 @@ pub fn scrape_text_from_urls(urls: Vec<String>) -> Result<Vec<String>> {
       let result = match scrape_text_from_url(url.to_string()) {
         Ok(text) => text,
         Err(e) => {
-          error!("Error scraping {}: {}", url, e);
+          println!("Error scraping {}: {}", url, e);
           format!("Error scraping {}: {}", url, e)
         }
       };
