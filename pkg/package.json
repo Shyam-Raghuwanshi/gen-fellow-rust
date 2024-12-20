@@ -1,0 +1,22 @@
+{
+  "name": "@shyamraghuonec/rust-lib",
+  "version": "1.0.8",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "types": "./index.d.ts",
+  "main": "rust-lib.linux-x64-gnu.node",
+  "files": [
+    "rust-lib.linux-x64-gnu.node"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">= 10"
+  },
+  "libc": [
+    "glibc"
+  ]
+}

@@ -1,0 +1,17 @@
+version: '3.9'
+
+services:
+  testrust:
+    security_opt:
+      - seccomp:"./chrome.json"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: testrust
+    container_name: testrust-container
+    stdin_open: true
+    tty: true
+    shm_size: 1g
+    environment:
+      - CHROME_BIN=/usr/bin/google-chrome
+    command: [ "node", "test.mjs" ]
