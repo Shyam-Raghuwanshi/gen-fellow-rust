@@ -41,7 +41,8 @@
     "prepublishOnly": "napi prepublish -t npm",
     "test": "ava",
     "universal": "napi universal",
-    "version": "napi version"
+    "version": "napi version",
+    "pack": "rm pkg/index.d.ts && rm ./pkg/rust-lib.linux-x64-gnu.node && cp ./rust-lib.linux-x64-gnu.node ./pkg/ && cp ./index.d.ts ./pkg/"
   },
   "packageManager": "yarn@1.22.22"
 }

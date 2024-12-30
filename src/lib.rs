@@ -1,12 +1,13 @@
 #![deny(clippy::all)]
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use headless_chrome::{Browser, LaunchOptionsBuilder};
+use futures::future;
 use napi::Result;
 use napi_derive::napi;
+use playwright::Playwright;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use regex::Regex;
 use reqwest::blocking::Client;
 use scraper::{Html, Selector};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -53,7 +54,7 @@ fn crawl_website(
   };
 
   if !response.status().is_success() {
-      println!(
+    println!(
       "Received non-success status code {} for URL: {}",
       response.status(),
       url
@@ -112,25 +113,26 @@ fn crawl_website(
   });
 }
 
-// scrape the web page text
-#[napi]
-pub fn scrape_text_from_urls(urls: Vec<String>) -> Result<Vec<String>> {
+pub async fn scrape_text_from_urls(urls: Vec<String>) -> Result<Vec<String>> {
   let start_time = Instant::now();
   println!("Starting to scrape {} URLs", urls.len());
 
-  let results: Vec<String> = urls
-    .par_iter()
-    .map(|url| {
-      let result = match scrape_text_from_url(url.to_string()) {
+  // Use `futures::future::join_all` to run all async tasks concurrently
+  let tasks: Vec<_> = urls
+    .into_iter()
+    .map(|url| async move {
+      match scrape_text_from_url_playwright(url.clone()).await {
         Ok(text) => text,
         Err(e) => {
           println!("Error scraping {}: {}", url, e);
           format!("Error scraping {}: {}", url, e)
         }
-      };
-      result
+      }
     })
     .collect();
+
+  // Wait for all tasks to complete
+  let results = future::join_all(tasks).await;
 
   let elapsed_time = start_time.elapsed();
   println!(
@@ -142,63 +144,113 @@ pub fn scrape_text_from_urls(urls: Vec<String>) -> Result<Vec<String>> {
   Ok(results)
 }
 
-fn scrape_text_from_url(url: String) -> napi::Result<String> {
-  let options = LaunchOptionsBuilder::default()
+pub async fn scrape_text_from_url_playwright(url: String) -> napi::Result<String> {
+  let playwright = Playwright::initialize()
+    .await
+    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  let _ = playwright.prepare();
+  let chromium = playwright.chromium();
+  let browser = chromium
+    .launcher()
     .headless(true)
+    .launch()
+    .await
+    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  let context = browser
+    .context_builder()
     .build()
+    .await
+    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  let page = context
+    .new_page()
+    .await
+    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  page
+    .goto_builder(&url)
+    .goto()
+    .await
     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
-  let browser = Browser::new(options).map_err(|e| napi::Error::from_reason(e.to_string()))?;
-  let tab = browser
-    .new_tab()
-    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+  let clean_content_script = r#"
+        let header = document.querySelector('header');
+        if (header) header.remove();
 
-  tab
-    .navigate_to(&url)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-  tab
-    .wait_until_navigated()
-    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let footer = document.querySelector('footer');
+        if (footer) footer.remove();
 
-  let js_script = r#"
-          function getMainContent() {
-                let main = document.querySelector('main');
-                // if (main) return main.innerText;
+        let headersToRemove = document.querySelectorAll('.header, .site-header, #header, .footer, .site-footer, #footer');
+        headersToRemove.forEach(el => el.remove());
+        document.body.innerText;
+    "#;
 
-                // If there's no <main> tag, try common content container classes
-                // let content = document.querySelector('.content, #content, .main-content, #main-content');
-                // if (content) return content.innerText;
-                
-                let body = document.body;
-                let header = document.querySelector('header');
-                let footer = document.querySelector('footer');
-                let aside = document.querySelector('aside')
-                if (header) header.parentNode.removeChild(header);
-                if (footer) footer.parentNode.removeChild(footer);
-                if (aside) aside.parentNode.removeChild(aside)
-                return body.innerText;
-            }
-            getMainContent();
-        "#;
+  let content = page
+    .evaluate::<Value, String>(clean_content_script, serde_json::json!({}))
+    .await
+    .map_err(|e| napi::Error::from_reason(e.to_string()))
+    .unwrap()
+    .trim()
+    .to_string();
 
-  let text_content = tab
-    .evaluate(js_script, false)
-    .map_err(|e| napi::Error::from_reason(e.to_string()))?
-    .value
-    .and_then(|v| v.as_str().map(String::from))
-    .ok_or("Failed to extract text content")
-    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-
-  let regex = Regex::new(r"\n").map_err(|e| napi::Error::from_reason(e.to_string()))?;
-  let cleaned_content = regex.replace_all(&text_content, " ");
-  let final_content = Regex::new(r"\s{2,}")
-    .map_err(|e| napi::Error::from_reason(e.to_string()))?
-    .replace_all(&cleaned_content, " ");
-  if final_content.is_empty() {
-    return Err(napi::Error::from_reason("No content found".to_string()));
-  }
-  Ok(final_content.into_owned())
+  Ok(content)
 }
+
+// fn scrape_text_from_url(url: String) -> napi::Result<String> {
+//   let options = LaunchOptionsBuilder::default()
+//     .headless(true)
+//     .build()
+//     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+//   let browser = Browser::new(options).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+//   let tab = browser
+//     .new_tab()
+//     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+//   tab
+//     .navigate_to(&url)
+//     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+//   tab
+//     .wait_until_navigated()
+//     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+//   let js_script = r#"
+//           function getMainContent() {
+//                 let main = document.querySelector('main');
+//                 // if (main) return main.innerText;
+
+//                 // If there's no <main> tag, try common content container classes
+//                 // let content = document.querySelector('.content, #content, .main-content, #main-content');
+//                 // if (content) return content.innerText;
+
+//                 let body = document.body;
+//                 let header = document.querySelector('header');
+//                 let footer = document.querySelector('footer');
+//                 let aside = document.querySelector('aside')
+//                 if (header) header.parentNode.removeChild(header);
+//                 if (footer) footer.parentNode.removeChild(footer);
+//                 if (aside) aside.parentNode.removeChild(aside)
+//                 return body.innerText;
+//             }
+//             getMainContent();
+//         "#;
+
+//   let text_content = tab
+//     .evaluate(js_script, false)
+//     .map_err(|e| napi::Error::from_reason(e.to_string()))?
+//     .value
+//     .and_then(|v| v.as_str().map(String::from))
+//     .ok_or("Failed to extract text content")
+//     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+//   let regex = Regex::new(r"\n").map_err(|e| napi::Error::from_reason(e.to_string()))?;
+//   let cleaned_content = regex.replace_all(&text_content, " ");
+//   let final_content = Regex::new(r"\s{2,}")
+//     .map_err(|e| napi::Error::from_reason(e.to_string()))?
+//     .replace_all(&cleaned_content, " ");
+//   if final_content.is_empty() {
+//     return Err(napi::Error::from_reason("No content found".to_string()));
+//   }
+//   Ok(final_content.into_owned())
+// }
 
 #[napi]
 pub enum ModelTypes {
