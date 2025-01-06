@@ -113,6 +113,7 @@ fn crawl_website(
   });
 }
 
+#[napi]
 pub async fn scrape_text_from_urls(urls: Vec<String>) -> Result<Vec<String>> {
   let start_time = Instant::now();
   println!("Starting to scrape {} URLs", urls.len());

@@ -310,8 +310,9 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { scrapeWebsite, ModelTypes, generateEmbeddings } = nativeBinding
+const { scrapeWebsite, scrapeTextFromUrls, ModelTypes, generateEmbeddings } = nativeBinding
 
 module.exports.scrapeWebsite = scrapeWebsite
+module.exports.scrapeTextFromUrls = scrapeTextFromUrls
 module.exports.ModelTypes = ModelTypes
 module.exports.generateEmbeddings = generateEmbeddings

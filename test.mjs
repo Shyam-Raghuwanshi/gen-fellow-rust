@@ -1,6 +1,9 @@
 import { ModelTypes, generateEmbeddings, scrapeTextFromUrls } from "./index.js"
 
 
+console.log(await scrapeTextFromUrls(["https://google.com"]))
+
+
 const arr = [
     // generateEmbeddings(["hi"], ModelTypes.AllMiniLML6V2),
     // generateEmbeddings(["hi"], ModelTypes.BGESmallENV15),
@@ -43,9 +46,9 @@ const failedArr = [
 ]
 
 
-new Promise((reslove) => {
-    for (let i = 0; i < failedArr.length; i++) {
-        const element = failedArr[i];
-        reslove(element);
-    }
-})
+// new Promise((reslove) => {
+//     for (let i = 0; i < failedArr.length; i++) {
+//         const element = failedArr[i];
+//         reslove(element);
+//     }
+// })
